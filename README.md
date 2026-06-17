@@ -41,3 +41,69 @@ To view your data nicely formatted in the terminal, run:
 ```bash
 python queries.py
 ```
+
+---
+
+## 🔍 Asset Change Detection System
+
+A standalone Python module that compares two asset inventory snapshots and detects every addition, removal, and field-level modification.
+
+### How It Works
+
+```
+  Monday Inventory  ─┐
+                     ├─▶  AssetChangeDetector  ─▶  ChangeReport  ─▶  Summary Report
+  Friday Inventory  ─┘
+```
+
+1. Feed it a **previous** and **current** list of asset dictionaries.
+2. It compares every asset by a unique `asset_id` field.
+3. It produces a `ChangeReport` with four categories:
+   - ✅ **Added** — assets present in current but not in previous.
+   - 🗑️ **Removed** — assets present in previous but not in current.
+   - ✏️ **Modified** — assets present in both, but with changed field values.
+   - ➖ **Unchanged** — assets identical in both snapshots.
+
+### Files
+
+| File | Purpose |
+|---|---|
+| `change_detector.py` | Core module — `AssetChangeDetector` class and report formatter |
+| `test_change_detector.py` | 31 unit tests covering all scenarios and edge cases |
+| `demo.py` | Demo script simulating a realistic Monday→Friday inventory change |
+| `test_results.txt` | Saved output of the test run |
+
+### Running the Demo
+
+```bash
+python3 demo.py
+```
+
+This simulates a full week of asset changes and prints a formatted report to the terminal.
+
+### Running the Tests
+
+```bash
+# Run all 31 tests with verbose output
+python3 -m unittest test_change_detector.py -v
+
+# Run and save results to a file
+python3 -m unittest test_change_detector.py -v 2>&1 | tee test_results.txt
+```
+
+### Using the API in Your Own Code
+
+```python
+from change_detector import AssetChangeDetector
+
+previous = [
+    {"asset_id": "A1", "ip_address": "10.0.0.1", "os": "Ubuntu 20.04"},
+]
+current = [
+    {"asset_id": "A1", "ip_address": "10.0.0.1", "os": "Ubuntu 22.04"},  # OS changed
+    {"asset_id": "A2", "ip_address": "10.0.0.2", "os": "Windows 11"},    # new asset
+]
+
+detector = AssetChangeDetector(previous, current)
+print(detector.generate_report())
+```

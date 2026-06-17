@@ -1,0 +1,67 @@
+test_added_from_empty_previous (test_change_detector.TestAddedAssets)
+Starting from an empty previous inventory, everything in current is 'added'. ... ok
+test_multiple_assets_added (test_change_detector.TestAddedAssets)
+Multiple new assets are all correctly detected. ... ok
+test_no_assets_added (test_change_detector.TestAddedAssets)
+When both inventories are identical, no additions are reported. ... ok
+test_single_asset_added (test_change_detector.TestAddedAssets)
+A new asset in current but not in previous is detected as added. ... ok
+test_both_inventories_empty (test_change_detector.TestEdgeCases)
+Two empty inventories produce a report with all zeros. ... ok
+test_custom_id_field (test_change_detector.TestEdgeCases)
+The detector works correctly with a custom id_field like 'hostname'. ... ok
+test_duplicate_id_in_inventory_raises_error (test_change_detector.TestEdgeCases)
+Duplicate asset IDs in the same inventory raise a ValueError. ... ok
+test_large_inventory_performance (test_change_detector.TestEdgeCases)
+Smoke test: handles a large inventory (1000 assets) without crashing. ... ok
+test_missing_id_field_raises_error (test_change_detector.TestEdgeCases)
+An asset missing the id field raises a ValueError. ... ok
+test_criticality_escalated (test_change_detector.TestModifiedAssets)
+Criticality changing from 'low' to 'critical' is detected. ... ok
+test_custom_ignore_fields (test_change_detector.TestModifiedAssets)
+Custom ignore_fields are respected. ... ok
+test_field_added_to_asset (test_change_detector.TestModifiedAssets)
+Adding a new field to an existing asset is detected as a modification. ... ok
+test_field_removed_from_asset (test_change_detector.TestModifiedAssets)
+Removing a field from an existing asset is detected as a modification. ... ok
+test_ignored_fields_not_reported (test_change_detector.TestModifiedAssets)
+Fields listed in ignore_fields are not reported as changes. ... ok
+test_ip_address_changed (test_change_detector.TestModifiedAssets)
+A changed IP address is detected as a modification. ... ok
+test_multiple_fields_changed (test_change_detector.TestModifiedAssets)
+Multiple changed fields on the same asset are all detected. ... ok
+test_os_changed (test_change_detector.TestModifiedAssets)
+A changed operating system is detected as a modification. ... ok
+test_all_assets_decommissioned (test_change_detector.TestRemovedAssets)
+When current is empty, all previous assets show as removed. ... ok
+test_multiple_assets_removed (test_change_detector.TestRemovedAssets)
+Multiple removed assets are all detected. ... ok
+test_no_assets_removed (test_change_detector.TestRemovedAssets)
+When no assets are removed, the removed list is empty. ... ok
+test_single_asset_removed (test_change_detector.TestRemovedAssets)
+An asset missing from current (but in previous) is detected as removed. ... ok
+test_no_changes_message (test_change_detector.TestReportGeneration)
+When there are no changes, the report says so clearly. ... ok
+test_report_contains_generated_at (test_change_detector.TestReportGeneration)
+The report contains a timestamp. ... ok
+test_report_contains_summary_header (test_change_detector.TestReportGeneration)
+The report contains the expected header text. ... ok
+test_report_is_string (test_change_detector.TestReportGeneration)
+generate_report() returns a string. ... ok
+test_report_shows_added_asset_name (test_change_detector.TestReportGeneration)
+The report mentions the name of an added asset. ... ok
+test_report_shows_modified_field (test_change_detector.TestReportGeneration)
+The report shows the field name and old/new values for a modified asset. ... ok
+test_report_shows_removed_asset_name (test_change_detector.TestReportGeneration)
+The report mentions the name of a removed asset. ... ok
+test_no_changes_means_no_changes_flag (test_change_detector.TestUnchangedAssets)
+has_changes is False when inventories are identical. ... ok
+test_unchanged_asset (test_change_detector.TestUnchangedAssets)
+An asset identical in both inventories is counted as unchanged. ... ok
+test_with_changes_flag_is_true (test_change_detector.TestUnchangedAssets)
+has_changes is True when there is at least one addition. ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 0.009s
+
+OK

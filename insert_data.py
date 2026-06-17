@@ -160,6 +160,27 @@ assets_data = [
         "tags": {"team": "netops", "tier": "network"},
         "status": "active"
     },
+    {
+       "asset_name": "Core Switch",
+        "asset_type": "network_device",
+        "hostname": "core-sw-01",
+        "fqdn": "core-switch-01.infra.company.com",
+        "mac_address": "00:1a:2b:3c:4d:5e",
+        "ip_address": "192.168.1.1",
+        "network_zone": "internal",
+        "operating_system": "Cisco IOS",
+        "os_version": "15.2(7)E5",
+        "cloud_provider": "on_premise",
+        "physical_location": "DC1 Rack 01 Unit 1",
+        "owner": "Network Team",
+        "department": "IT Operations",
+        "contact_email": "netops@company.com",
+        "environment": "production",
+        "criticality": "critical",
+        "data_classification": "restricted",
+        "tags": {"team": "netops", "tier": "network"},
+        "status": "active" 
+    }
 ]
 
 inserted_assets = insert("assets", assets_data, "Assets")
