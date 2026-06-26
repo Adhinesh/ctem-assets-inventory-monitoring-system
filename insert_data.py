@@ -5,18 +5,46 @@
 # Requires: pip install supabase
 # ================================================================
 
-from supabase import create_client
-from config import SUPABASE_URL, SUPABASE_KEY
+from insert_tool import SupabaseInserter
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-print("✅ Connected to Supabase\n")
+inserter = SupabaseInserter()
+print("✅ Connected to Supabase (Safe Mode)\n")
 
 
-# ── Helper ───────────────────────────────────────────────────────
+# ── Helper using SupabaseInserter (Safe Upsert) ──────────────────
 def insert(table, rows, label):
-    res = supabase.table(table).insert(rows).execute()
-    print(f"  ✔  {label}: {len(res.data)} row(s) inserted")
-    return res.data
+    results = []
+    if not isinstance(rows, list):
+        rows = [rows]
+        
+    for row in rows:
+        if table == "assets":
+            res = inserter.upsert_asset(row)
+        elif table == "vulnerabilities":
+            res = inserter.upsert_vuln(row)
+        elif table == "open_ports":
+            res = inserter.upsert_open_port(row)
+        elif table == "dns_records":
+            res = inserter.upsert_dns_record(row)
+        elif table == "scans":
+            res = inserter.upsert_scan(row)
+        elif table == "scan_snapshots":
+            res = inserter.upsert_scan_snapshot(row)
+        elif table == "asset_vulnerabilities":
+            res = inserter.upsert_asset_vuln(row)
+        elif table == "exposures":
+            res = inserter.upsert_exposure(row)
+        elif table == "asset_changes":
+            res = inserter.insert_change(row)
+        elif table == "asset_logs":
+            res = inserter.insert_log(row)
+        else:
+            res = inserter.supabase.table(table).insert(row).execute().data[0]
+        results.append(res)
+        
+    print(f"  ✔  {label}: {len(results)} row(s) upserted/inserted")
+    return results
+
 
 
 # ================================================================
@@ -180,6 +208,32 @@ assets_data = [
         "data_classification": "restricted",
         "tags": {"team": "netops", "tier": "network"},
         "status": "active" 
+    },
+    {
+        "asset_name": "payment Server",
+        "asset_type": "server",
+        "hostname": "pyserver-01",
+        "fqdn": "pyserver-01.prod.company.com",
+        "mac_address": "08:00:2b:04:05:06",
+        "ip_address": "192.168.1.105",
+        "network_zone": "internal",
+        "operating_system": "Windows Server 2022",
+        "os_version": "21H2",
+        "os_architecture": "x86_64",
+        "installed_software": [
+            {"name": "PostgreSQL", "version": "15.3"},
+            {"name": "pgAgent",    "version": "4.2"}
+        ],
+        "cloud_provider": "on_premise",
+        "physical_location": "DC1 Rack 08 Unit 2",
+        "owner": "Database Team",
+        "department": "Engineering",
+        "contact_email": "dba@company.com",
+        "environment": "production",
+        "criticality": "critical",
+        "data_classification": "restricted",
+        "tags": {"team": "dba", "tier": "data"},
+        "status": "active"
     }
 ]
 
