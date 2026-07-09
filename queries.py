@@ -187,17 +187,21 @@ show(flat)
 
 section("CHANGES FOR A SPECIFIC ASSET — Web Server 01")
 # First get asset_id
-asset = supabase.table("assets").select("asset_id").eq("asset_name", "Web Server 01").single().execute().data
+asset = (
+    supabase.table("assets")
+    .select("asset_id")
+    .eq("asset_name", "Web Server 01")
+    .execute()
+    .data
+)
 rows = (
     supabase.table("asset_changes")
     .select("change_type, field_changed, old_value, new_value, changed_by, changed_at")
-    .eq("asset_id", asset["asset_id"])
+    .eq("asset_id", asset[0]["asset_id"])
     .order("changed_at", desc=True)
     .execute().data
 )
 show(rows)
-
-
 # ================================================================
 # 6. ASSET LOGS (Event Stream)
 # ================================================================
@@ -336,8 +340,45 @@ rows = (
     .execute().data
 )
 show(rows)
+# ================================================================
+# 11.To view asset statuses from the database
+# ================================================================
+#To view asset statuses from the database
+result = (
+    supabase.table("assets")
+    .select("asset_id, asset_name, status")
+    .execute()
+)
 
+print("\nAsset Status Report")
+print("-" * 50)
 
+for asset in result.data:
+    print(
+        f"{asset['asset_id']} | "
+        f"{asset['asset_name']} | "
+        f"{asset['status']}"
+        )
+#To show only inactive assets
+result = (
+    supabase.table("assets")
+    .select("asset_id, asset_name, status")
+    .eq("status", "inactive")
+    .execute()
+)
+
+print("\nInactive Assets")
+print("-" * 50)
+
+if result.data:
+    for asset in result.data:
+        print(
+            f"{asset['asset_id']} | "
+            f"{asset['asset_name']} | "
+            f"{asset['status']}"
+        )
+else:
+    print("No inactive assets found.")
 # ================================================================
 # USEFUL UPDATE EXAMPLES (uncomment to use)
 # ================================================================
