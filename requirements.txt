@@ -1,0 +1,4 @@
+supabase
+fastapi
+uvicorn[standard]
+python-multipart
