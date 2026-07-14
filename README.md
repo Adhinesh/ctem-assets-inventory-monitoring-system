@@ -49,6 +49,11 @@ To view your data nicely formatted in the terminal, run:
 python queries.py
 ```
 
+### 5b. API Workflow Guide
+For a step-by-step workflow on inserting and retrieving data through the FastAPI routes, read:
+
+- [`docs/api-workflow-guide.md`](docs/api-workflow-guide.md)
+
 ### 6. Run Continuous Monitoring
 To keep monitoring running in the background 24/7, start:
 ```bash
