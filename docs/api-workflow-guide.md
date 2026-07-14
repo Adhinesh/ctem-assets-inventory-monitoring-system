@@ -28,6 +28,7 @@ The main insert endpoint for inventory data is `POST /assets/`.
 
 Required field:
 
+- `asset_id`
 - `asset_name`
 
 Common fields you can send:
@@ -50,6 +51,7 @@ Common fields you can send:
 curl -X POST "http://127.0.0.1:8000/assets/" \
   -H "Content-Type: application/json" \
   -d '{
+    "asset_id": 101,
     "asset_name": "Web Server 01",
     "asset_type": "server",
     "ip_address": "10.0.0.10",
@@ -184,6 +186,7 @@ import requests
 base_url = "http://127.0.0.1:8000"
 
 asset_payload = {
+    "asset_id": 201,
     "asset_name": "Database Server 01",
     "asset_type": "server",
     "ip_address": "10.0.0.20",
@@ -208,7 +211,7 @@ print(ports.json())
 ## 6. Notes
 
 - The API server runs at `http://127.0.0.1:8000` by default.
-- `POST /assets/` behaves like an upsert by `asset_name`.
+- `POST /assets/` requires `asset_id` and updates that record if the ID already exists.
 - `POST /ports/` upserts on `(asset_id, port_number, protocol)`.
 - `POST /dns/` upserts on `(domain, subdomain, record_type, record_value)`.
 - Use `/docs` when you want to inspect request schemas and try requests manually.

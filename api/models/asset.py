@@ -8,6 +8,7 @@ from datetime import datetime
 
 
 class AssetCreate(BaseModel):
+    asset_id: int
     asset_name: str
     asset_type: str = Field(..., description="server | workstation | network_device | cloud_instance | container | iot_device | mobile")
     hostname: Optional[str] = None

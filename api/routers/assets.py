@@ -64,11 +64,12 @@ def list_assets(
     List assets with optional filters. Supports filtering by criticality,
     status, environment, type, and a keyword search on name/IP.
     """
-    q = db.table("assets").select(
+    select_fields = (
         "asset_id, asset_name, asset_type, ip_address, fqdn, operating_system, "
         "owner, department, environment, criticality, status, network_zone, "
         "cloud_provider, tags, created_at, updated_at"
     )
+    q = db.table("assets").select(select_fields)
     if criticality:
         q = q.eq("criticality", criticality)
     if status:
@@ -78,7 +79,18 @@ def list_assets(
     if asset_type:
         q = q.eq("asset_type", asset_type)
     if search:
-        q = q.or_(f"asset_name.ilike.%{search}%,ip_address.eq.{search}")
+        name_matches = q.ilike("asset_name", f"%{search}%").execute().data
+        ip_matches = q.eq("ip_address", search).execute().data
+        combined = []
+        seen_ids = set()
+        for row in name_matches + ip_matches:
+            asset_id = row.get("asset_id")
+            if asset_id in seen_ids:
+                continue
+            seen_ids.add(asset_id)
+            combined.append(row)
+        combined.sort(key=lambda row: (row.get("criticality") or "", row.get("asset_name") or ""))
+        return {"total": len(combined), "data": combined[offset:offset + limit]}
 
     res = q.order("criticality").range(offset, offset + limit - 1).execute()
     return {"total": len(res.data), "data": res.data}
@@ -93,21 +105,20 @@ def get_asset(asset_id: int, db: Client = Depends(get_db)):
 @router.post("/", summary="Create a new asset", status_code=201)
 def create_asset(payload: AssetCreate, db: Client = Depends(get_db)):
     """
-    Create a new asset. If an asset with the same `asset_name` already exists,
-    it will be updated (upsert behaviour) to prevent duplicates.
+    Create a new asset. The caller must provide `asset_id`.
+    If that `asset_id` already exists, the record is updated.
     """
     try:
         data = payload.model_dump(exclude_none=True)
-        # Check-then-insert/update pattern (no unique constraint on asset_name in DB)
+        asset_id = data["asset_id"]
         existing = (
             db.table("assets")
             .select("asset_id")
-            .eq("asset_name", data["asset_name"])
+            .eq("asset_id", asset_id)
             .execute()
             .data
         )
         if existing:
-            asset_id = existing[0]["asset_id"]
             before = _asset_or_404(db, asset_id)
             res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
             if res.data:
