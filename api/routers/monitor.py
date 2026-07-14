@@ -14,11 +14,13 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Query
 from supabase import Client
 
 from api.db import get_db
+from logging_utils import get_logger
 
 # Ensure project root is in path so monitor.py can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 router = APIRouter(prefix="/monitor", tags=["Monitor"])
+logger = get_logger(__name__)
 
 # Where monitor.py saves its JSON run logs
 LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "monitoring_logs")
@@ -30,12 +32,20 @@ def _run_monitor_pipeline() -> dict:
     save logs. Returns a summary dict.
     """
     try:
-        from monitor import CTEMMonitor
-        monitor = CTEMMonitor()
-        result = monitor.run()
-        return result if isinstance(result, dict) else {"status": "completed", "detail": str(result)}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+        from monitor import build_live_monitor
+
+        monitor = build_live_monitor(push_to_supabase=True)
+        report = monitor.run()
+        return {
+            "status": "completed",
+            "run_id": monitor.run_id,
+            "previous_asset_count": len(monitor.previous),
+            "current_asset_count": len(monitor.current),
+            "detail": report,
+        }
+    except Exception as exc:
+        logger.exception("Monitoring pipeline failed")
+        return {"status": "error", "error": str(exc)}
 
 
 def _list_log_files() -> list[dict]:
@@ -56,7 +66,7 @@ def _list_log_files() -> list[dict]:
                 "summary": {k: v for k, v in data.items() if k != "alerts"},
             })
         except Exception:
-            pass
+            logger.exception("Failed to read monitoring run file: %s", f)
     return runs
 
 
@@ -95,8 +105,12 @@ def get_monitor_run(run_id: str):
     path = os.path.join(LOGS_DIR, f"{run_id}.json")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.exception("Failed to read monitoring run: %s", path)
+        raise HTTPException(status_code=500, detail="Failed to read monitoring run") from exc
 
 
 @router.get("/latest", summary="Get the most recent monitoring run result")
@@ -107,5 +121,9 @@ def get_latest_run():
         raise HTTPException(status_code=404, detail="No monitoring runs found yet. POST /monitor/run to start one.")
     run = runs[0]
     path = run["file"]
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.exception("Failed to read latest monitoring run: %s", path)
+        raise HTTPException(status_code=500, detail="Failed to read latest monitoring run") from exc

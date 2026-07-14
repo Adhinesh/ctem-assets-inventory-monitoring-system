@@ -1,146 +1,87 @@
 """
-scheduler.py
---------------------------------------------------
-CTEM Scheduled Asset Monitoring
+scheduler1.py
+-------------
+Continuous CTEM monitoring runner.
 
-Runs the complete monitoring pipeline automatically.
+Runs the fixed snapshot-based monitor in a simple 24/7 loop.
 
-Run:
-    python scheduler.py
+Examples:
+    python3 scheduler1.py
+    python3 scheduler1.py --interval-seconds 30
 """
 
+from __future__ import annotations
+
+import argparse
+import time
 from datetime import datetime
-from apscheduler.schedulers.blocking import BlockingScheduler
 
-# Existing project imports
-from asset_lifecycle import AssetLifecycleManager
-from scan_asset_change import ScanAssetChangeTracker
-from monitor import AssetMonitor
+from monitor import build_live_monitor
+from logging_utils import configure_logging, get_logger
 
-# Supabase
-from supabase import create_client
-from config import SUPABASE_URL, SUPABASE_KEY
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+configure_logging()
+logger = get_logger(__name__)
 
 
-# ==========================================================
-# Monitoring Job
-# ==========================================================
+def run_monitoring_once() -> dict:
+    """Execute one live monitoring cycle and return a short summary."""
+    started_at = datetime.now()
+    logger.info("CTEM Continuous Monitoring started at %s", started_at.isoformat(timespec="seconds"))
 
-def run_monitoring():
+    monitor = build_live_monitor(push_to_supabase=True)
+    report_text = monitor.run()
 
-    print("\n" + "=" * 60)
-    print("CTEM Scheduled Monitoring")
-    print("Started :", datetime.now())
-    print("=" * 60)
+    logger.info("\n%s", report_text)
+    logger.info("Monitoring completed successfully")
 
-    try:
-
-        # ----------------------------------------------------
-        # STEP 1
-        # Load previous inventory from database
-        # ----------------------------------------------------
-
-        previous_inventory = (
-            supabase
-            .table("assets")
-            .select("*")
-            .execute()
-            .data
-        )
-
-        # ----------------------------------------------------
-        # STEP 2
-        # Get current scan
-        #
-        # Currently:
-        # using database as scan source.
-        #
-        # Later replace ONLY this section with 
-        # Nmap / scanner output.
-        # ----------------------------------------------------
-
-        current_scan = (
-            supabase
-            .table("assets")
-            .select("*")
-            .execute()
-            .data
-        )
-
-        # ----------------------------------------------------
-        # STEP 3
-        # Update First Seen / Last Seen
-        # ----------------------------------------------------
-
-        lifecycle = AssetLifecycleManager()
-        lifecycle.update_first_last_seen(current_scan)
-
-        # ----------------------------------------------------
-        # STEP 4
-        # Detect & Store Changes
-        # ----------------------------------------------------
-
-        tracker = ScanAssetChangeTracker()
-        report = tracker.detect_and_store_changes(current_scan)
-
-        # ----------------------------------------------------
-        # STEP 5
-        # Generate Monitoring Report
-        # ----------------------------------------------------
-
-        monitor = AssetMonitor(
-            previous=previous_inventory,
-            current=current_scan,
-            run_label="Scheduled Monitoring Run",
-            save_locally=True,
-            push_to_supabase=True
-        )
-
-        final_report = monitor.run()
-
-        print(final_report)
-
-        print("\nMonitoring completed successfully.")
-
-        print("\nSummary")
-        print("---------------------------")
-        print("Added     :", report.total_added)
-        print("Removed   :", report.total_removed)
-        print("Modified  :", report.total_modified)
-        print("Unchanged :", report.total_unchanged)
-
-    except Exception as e:
-
-        print("\nMonitoring Failed")
-        print(e)
+    return {
+        "run_id": monitor.run_id,
+        "started_at": started_at.isoformat(),
+        "previous_asset_count": len(monitor.previous),
+        "current_asset_count": len(monitor.current),
+    }
 
 
-# ==========================================================
-# APScheduler
-# ==========================================================
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run CTEM monitoring continuously.")
+    parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=60,
+        help="Seconds to wait between monitoring runs. Default: 60.",
+    )
+    args = parser.parse_args()
 
-scheduler = BlockingScheduler()
+    if args.interval_seconds < 5:
+        raise SystemExit("interval must be at least 5 seconds")
 
-scheduler.add_job(
-    run_monitoring,
-    trigger="interval",
-    minutes=1,
-    id="ctem_monitor",
-    replace_existing=True,
-)
+    logger.info("Continuous monitor started")
+    logger.info("Polling interval: %s second(s)", args.interval_seconds)
+    logger.info("Press Ctrl+C to stop.")
 
-print("\nScheduler Started")
-print("Monitoring runs every 1 minute.")
-print("Press CTRL + C to stop.\n")
+    while True:
+        cycle_started = time.time()
+        try:
+            summary = run_monitoring_once()
+            logger.info(
+                "Run summary: run_id=%s previous=%s current=%s",
+                summary["run_id"],
+                summary["previous_asset_count"],
+                summary["current_asset_count"],
+            )
+        except Exception as exc:
+            logger.exception("Monitoring failed")
 
-# Run immediately once
-run_monitoring()
+        elapsed = time.time() - cycle_started
+        sleep_for = max(args.interval_seconds - elapsed, 0)
+        logger.info("Next run in %s second(s)", round(sleep_for, 1))
 
-# Continue running automatically
-try:
-    scheduler.start()
-except (KeyboardInterrupt, SystemExit):
-    print("\nScheduler stopped by user (CTRL + C).")
-    scheduler.shutdown()
+        try:
+            time.sleep(sleep_for)
+        except KeyboardInterrupt:
+            logger.info("Continuous monitor stopped by user")
+            break
+
+
+if __name__ == "__main__":
+    main()

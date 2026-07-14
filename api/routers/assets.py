@@ -3,13 +3,16 @@ routers/assets.py — All /assets endpoints.
 """
 from __future__ import annotations
 from typing import List, Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from supabase import Client
 
 from api.db import get_db
 from api.models.asset import AssetCreate, AssetUpdate, AssetResponse
+from logging_utils import get_logger
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
+logger = get_logger(__name__)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -19,6 +22,29 @@ def _asset_or_404(db: Client, asset_id: int) -> dict:
     if not res.data:
         raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
     return res.data[0]
+
+
+def _record_asset_change(
+    db: Client,
+    *,
+    asset_id: int,
+    change_type: str,
+    field_changed: Optional[str] = None,
+    old_value: Optional[object] = None,
+    new_value: Optional[object] = None,
+    change_reason: Optional[str] = None,
+) -> None:
+    db.table("asset_changes").insert({
+        "asset_id": asset_id,
+        "change_type": change_type,
+        "field_changed": field_changed,
+        "old_value": None if old_value is None else str(old_value),
+        "new_value": None if new_value is None else str(new_value),
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_by": "api",
+        "source": "manual",
+        "change_reason": change_reason,
+    }).execute()
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -70,45 +96,105 @@ def create_asset(payload: AssetCreate, db: Client = Depends(get_db)):
     Create a new asset. If an asset with the same `asset_name` already exists,
     it will be updated (upsert behaviour) to prevent duplicates.
     """
-    data = payload.model_dump(exclude_none=True)
-    # Check-then-insert/update pattern (no unique constraint on asset_name in DB)
-    existing = (
-        db.table("assets")
-        .select("asset_id")
-        .eq("asset_name", data["asset_name"])
-        .execute()
-        .data
-    )
-    if existing:
-        asset_id = existing[0]["asset_id"]
-        res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
-    else:
-        res = db.table("assets").insert(data).execute()
+    try:
+        data = payload.model_dump(exclude_none=True)
+        # Check-then-insert/update pattern (no unique constraint on asset_name in DB)
+        existing = (
+            db.table("assets")
+            .select("asset_id")
+            .eq("asset_name", data["asset_name"])
+            .execute()
+            .data
+        )
+        if existing:
+            asset_id = existing[0]["asset_id"]
+            before = _asset_or_404(db, asset_id)
+            res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
+            if res.data:
+                for field, new_value in data.items():
+                    old_value = before.get(field)
+                    if old_value != new_value:
+                        _record_asset_change(
+                            db,
+                            asset_id=asset_id,
+                            change_type="asset_modified",
+                            field_changed=field,
+                            old_value=old_value,
+                            new_value=new_value,
+                            change_reason="Asset updated through create/upsert endpoint",
+                        )
+        else:
+            res = db.table("assets").insert(data).execute()
+            if res.data:
+                created = res.data[0]
+                _record_asset_change(
+                    db,
+                    asset_id=created["asset_id"],
+                    change_type="asset_added",
+                    new_value=created.get("asset_name"),
+                    change_reason="Asset created through API",
+                )
 
-    if not res.data:
-        raise HTTPException(status_code=500, detail="Failed to create asset")
-    return res.data[0]
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Failed to create asset")
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to create asset")
+        raise HTTPException(status_code=500, detail="Failed to create asset") from exc
 
 
 @router.put("/{asset_id}", summary="Update an asset")
 def update_asset(asset_id: int, payload: AssetUpdate, db: Client = Depends(get_db)):
     """Update one or more fields on an existing asset."""
-    _asset_or_404(db, asset_id)
-    data = payload.model_dump(exclude_none=True)
-    if not data:
-        raise HTTPException(status_code=400, detail="No fields provided to update")
-    res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
-    if not res.data:
-        raise HTTPException(status_code=500, detail="Update failed")
-    return res.data[0]
+    try:
+        before = _asset_or_404(db, asset_id)
+        data = payload.model_dump(exclude_none=True)
+        if not data:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+        res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Update failed")
+        for field, new_value in data.items():
+            old_value = before.get(field)
+            if old_value != new_value:
+                _record_asset_change(
+                    db,
+                    asset_id=asset_id,
+                    change_type="asset_modified",
+                    field_changed=field,
+                    old_value=old_value,
+                    new_value=new_value,
+                    change_reason="Asset updated through API",
+                )
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to update asset %s", asset_id)
+        raise HTTPException(status_code=500, detail="Failed to update asset") from exc
 
 
 @router.delete("/{asset_id}", summary="Delete an asset")
 def delete_asset(asset_id: int, db: Client = Depends(get_db)):
     """Permanently delete an asset and all its related records (cascade)."""
-    _asset_or_404(db, asset_id)
-    db.table("assets").delete().eq("asset_id", asset_id).execute()
-    return {"message": f"Asset {asset_id} deleted successfully"}
+    try:
+        asset = _asset_or_404(db, asset_id)
+        _record_asset_change(
+            db,
+            asset_id=asset_id,
+            change_type="asset_removed",
+            old_value=asset.get("asset_name"),
+            change_reason="Asset deleted through API",
+        )
+        db.table("assets").delete().eq("asset_id", asset_id).execute()
+        return {"message": f"Asset {asset_id} deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to delete asset %s", asset_id)
+        raise HTTPException(status_code=500, detail="Failed to delete asset") from exc
 
 
 # ── Sub-resources ─────────────────────────────────────────────────────────────

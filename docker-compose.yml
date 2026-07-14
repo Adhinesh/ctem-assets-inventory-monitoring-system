@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-https://eqlolqdgviakidyinwrt.supabase.co}
+      SUPABASE_KEY: ${SUPABASE_KEY:-sb_publishable_bvXFa9QnkBIC7ZYNbY_bUw_VN5shl4z}
+      CTEM_LOG_LEVEL: ${CTEM_LOG_LEVEL:-INFO}
+    volumes:
+      - ./monitoring_logs:/app/monitoring_logs
+    restart: unless-stopped

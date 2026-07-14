@@ -10,8 +10,14 @@ Or from the project root:
 Swagger UI:  http://127.0.0.1:8000/docs
 ReDoc:       http://127.0.0.1:8000/redoc
 """
+from logging_utils import configure_logging, get_logger
+
+configure_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from api.routers import (
     assets,
@@ -24,6 +30,8 @@ from api.routers import (
     monitor,
     dashboard,
 )
+
+logger = get_logger(__name__)
 
 # ── App definition ────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -79,6 +87,15 @@ app.include_router(monitor.router)
 app.include_router(dashboard.router)
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled API error for %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/", tags=["Health"])
 def root():
@@ -105,4 +122,5 @@ def health_check():
             "assets_in_db": res.count,
         }
     except Exception as e:
+        logger.exception("Health check failed")
         return {"status": "unhealthy", "database": "error", "detail": str(e)}

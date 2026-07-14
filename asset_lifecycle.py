@@ -17,8 +17,10 @@ PURPOSE:
 from datetime import datetime
 from supabase import create_client
 from config import SUPABASE_URL, SUPABASE_KEY
+from logging_utils import get_logger
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+logger = get_logger(__name__)
 
 
 class AssetLifecycleManager:
@@ -51,7 +53,7 @@ class AssetLifecycleManager:
             asset_id = asset.get("asset_id")
 
             if not asset_id:
-                print("[SKIPPED] Missing asset_id")
+                logger.warning("Skipping asset without asset_id")
                 continue
 
             # =================================================
@@ -63,7 +65,7 @@ class AssetLifecycleManager:
                     "last_seen": now
                 }).eq("asset_id", asset_id).execute()
 
-                print(f"[UPDATED] {asset_id} → last_seen updated")
+                logger.info("Updated %s last_seen", asset_id)
 
             # =================================================
             # CASE 2: New asset → insert with first_seen + last_seen
@@ -75,7 +77,7 @@ class AssetLifecycleManager:
                 missing = [f for f in required_fields if f not in asset]
 
                 if missing:
-                    print(f"[SKIPPED] {asset_id} missing fields: {missing}")
+                    logger.warning("Skipping %s missing fields: %s", asset_id, missing)
                     continue
 
                 asset["first_seen"] = now
@@ -87,4 +89,4 @@ class AssetLifecycleManager:
                     on_conflict="asset_id"
                 ).execute()
 
-                print(f"[NEW] {asset_id} → inserted")
+                logger.info("Inserted new asset %s", asset_id)

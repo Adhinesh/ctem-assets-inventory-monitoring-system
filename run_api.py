@@ -4,15 +4,17 @@ run_api.py
 ==========
 Starts the CTEM FastAPI server.
 """
-import sys
-import os
 import uvicorn
 
+from logging_utils import configure_logging, get_logger
+
+configure_logging()
+logger = get_logger(__name__)
+
 if __name__ == "__main__":
-    print("🚀 Starting CTEM API Server...")
-    print("📖 Swagger Documentation: http://127.0.0.1:8000/docs")
-    print("📖 ReDoc Documentation:   http://127.0.0.1:8000/redoc")
-    print("Press Ctrl+C to stop.\n")
-    
-    # Run uvicorn programmatically
+    logger.info("Starting CTEM API server")
+    logger.info("Swagger documentation: http://127.0.0.1:8000/docs")
+    logger.info("ReDoc documentation: http://127.0.0.1:8000/redoc")
+    logger.info("Press Ctrl+C to stop.")
+
     uvicorn.run("api.main:app", host="127.0.0.1", port=8000, reload=True)

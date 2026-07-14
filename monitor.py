@@ -26,6 +26,7 @@ from datetime import datetime
 
 from change_detector import AssetChangeDetector
 from alert_engine import AlertEngine
+from logging_utils import configure_logging, get_logger
 
 # ── Supabase import (optional — only needed when not in demo mode) ────────────
 try:
@@ -35,7 +36,63 @@ try:
 except ImportError:
     _SUPABASE_AVAILABLE = False
 
+configure_logging()
+logger = get_logger(__name__)
+
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "monitoring_logs")
+SNAPSHOT_PATH = os.path.join(LOGS_DIR, "latest_inventory_snapshot.json")
+
+
+def load_previous_inventory(current: list[dict]) -> list[dict]:
+    """
+    Load the inventory snapshot from the previous monitoring run.
+    Falls back to the current inventory on first run.
+    """
+    if not os.path.exists(SNAPSHOT_PATH):
+        return current
+
+    try:
+        with open(SNAPSHOT_PATH) as f:
+            payload = json.load(f)
+        previous = payload.get("inventory")
+        return previous if isinstance(previous, list) else current
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Unable to read previous inventory snapshot; using current inventory")
+        return current
+
+
+def save_current_inventory_snapshot(current: list[dict]) -> str:
+    """Persist the current inventory for the next monitoring run."""
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    payload = {
+        "saved_at": datetime.now().isoformat(),
+        "inventory": current,
+    }
+    with open(SNAPSHOT_PATH, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    return SNAPSHOT_PATH
+
+
+def build_live_monitor(push_to_supabase: bool = True) -> "AssetMonitor":
+    """Create an AssetMonitor backed by the live Supabase assets table."""
+    if not _SUPABASE_AVAILABLE:
+        raise RuntimeError("Supabase support is unavailable")
+
+    try:
+        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+        current = sb.table("assets").select("*").execute().data
+        previous = load_previous_inventory(current)
+    except Exception as exc:
+        logger.exception("Failed to build live monitoring inventory")
+        raise RuntimeError("Unable to load live inventory from Supabase") from exc
+
+    return AssetMonitor(
+        previous=previous,
+        current=current,
+        run_label="Supabase Live Run",
+        save_locally=True,
+        push_to_supabase=push_to_supabase,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,57 +145,60 @@ class AssetMonitor:
         Execute the full monitoring pipeline.
         Returns the formatted monitoring report as a string.
         """
-        print(f"\n{'━'*60}")
-        print(f"  🛡️  CTEM Asset Monitor — {self.run_label}")
-        print(f"  Run ID : {self.run_id}")
-        print(f"  Started: {self.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{'━'*60}\n")
+        try:
+            logger.info("Starting monitoring run %s", self.run_id)
 
-        # Step 1 — Detect changes
-        print("  🔍  Step 1 — Detecting changes...")
-        detector     = AssetChangeDetector(self.previous, self.current)
-        report       = detector.detect()
-        print(f"       Added: {report.total_added}  |  Removed: {report.total_removed}  |  Modified: {report.total_modified}  |  Unchanged: {report.total_unchanged}")
+            detector = AssetChangeDetector(self.previous, self.current)
+            report = detector.detect()
+            logger.info(
+                "Change summary - added=%s removed=%s modified=%s unchanged=%s",
+                report.total_added,
+                report.total_removed,
+                report.total_modified,
+                report.total_unchanged,
+            )
 
-        # Step 2 — Generate alerts
-        print("\n  🚨  Step 2 — Generating alerts...")
-        engine = AlertEngine(report)
-        alerts = engine.generate_alerts()
-        summ   = engine.summary()
-        print(f"       Total: {summ['total']}  |  🔴 Critical: {summ['critical']}  |  🟡 Warning: {summ['warning']}  |  🔵 Info: {summ['info']}")
+            engine = AlertEngine(report)
+            alerts = engine.generate_alerts()
+            summ = engine.summary()
+            logger.info(
+                "Alert summary - total=%s critical=%s warning=%s info=%s",
+                summ["total"],
+                summ["critical"],
+                summ["warning"],
+                summ["info"],
+            )
 
-        finished_at = datetime.now()
-        duration    = (finished_at - self.started_at).total_seconds()
+            finished_at = datetime.now()
+            duration = (finished_at - self.started_at).total_seconds()
 
-        # Step 3 — Store locally
-        log_path = None
-        if self.save_locally:
-            print("\n  💾  Step 3 — Saving local log...")
-            log_path = self._save_local_log(report, alerts, summ, finished_at, duration)
-            print(f"       Saved → {log_path}")
+            log_path = None
+            if self.save_locally:
+                log_path = self._save_local_log(report, alerts, summ, finished_at, duration)
+                snapshot_path = save_current_inventory_snapshot(self.current)
+                logger.info("Saved monitoring log to %s", log_path)
+                logger.info("Saved inventory snapshot to %s", snapshot_path)
 
-        # Step 4 — Push to Supabase
-        if self.push_to_supabase:
-            print("\n  ☁️   Step 4 — Storing in Supabase...")
-            self._push_to_supabase(report, alerts, summ, finished_at, duration)
-        else:
-            print("\n  ☁️   Step 4 — Skipping Supabase (demo mode or unavailable).")
+            if self.push_to_supabase:
+                self._push_to_supabase(report, alerts, summ, finished_at, duration)
+            else:
+                logger.info("Skipping Supabase storage (demo mode or unavailable)")
 
-        # Step 5 — Generate report
-        print("\n  📊  Step 5 — Generating monitoring report...\n")
-        final_report = _format_monitoring_report(
-            run_id      = self.run_id,
-            run_label   = self.run_label,
-            started_at  = self.started_at,
-            finished_at = finished_at,
-            duration    = duration,
-            previous    = self.previous,
-            current     = self.current,
-            report      = report,
-            alerts      = alerts,
-            log_path    = log_path,
-        )
-        return final_report
+            return _format_monitoring_report(
+                run_id=self.run_id,
+                run_label=self.run_label,
+                started_at=self.started_at,
+                finished_at=finished_at,
+                duration=duration,
+                previous=self.previous,
+                current=self.current,
+                report=report,
+                alerts=alerts,
+                log_path=log_path,
+            )
+        except Exception:
+            logger.exception("Monitoring run failed")
+            raise
 
     # ── Local JSON log ────────────────────────────────────────────────────────
 
@@ -167,6 +227,9 @@ class AssetMonitor:
             },
             "alert_summary": summ,
             "alerts": [a.to_dict() for a in alerts],
+            "previous_inventory_count": len(self.previous),
+            "current_inventory_count": len(self.current),
+            "current_inventory": self.current,
             "added_assets":   report.added,
             "removed_assets": report.removed,
             "modified_assets": {
@@ -207,8 +270,12 @@ class AssetMonitor:
             "info_alerts":           summ["info"],
             "status":                "completed",
         }
-        sb.table("monitoring_runs").insert(run_record).execute()
-        print(f"       ✔  Monitoring run recorded (run_id: {self.run_id[:8]}…)")
+        try:
+            sb.table("monitoring_runs").insert(run_record).execute()
+            logger.info("Monitoring run recorded in Supabase (run_id=%s)", self.run_id[:8])
+        except Exception:
+            logger.exception("Failed to store monitoring run in Supabase")
+            raise
 
         # ── Insert alerts ─────────────────────────────────────────────────────
         if alerts:
@@ -229,10 +296,14 @@ class AssetMonitor:
                     "is_acknowledged":  False,
                 })
 
-            sb.table("alerts").insert(rows).execute()
-            print(f"       ✔  {len(rows)} alert(s) stored in Supabase.")
+            try:
+                sb.table("alerts").insert(rows).execute()
+                logger.info("%s alert(s) stored in Supabase", len(rows))
+            except Exception:
+                logger.exception("Failed to store alerts in Supabase")
+                raise
         else:
-            print("       ✔  No alerts to store.")
+            logger.info("No alerts to store")
 
     def _resolve_asset_ids(self, alerts: list) -> dict:
         """
@@ -257,6 +328,7 @@ class AssetMonitor:
                 mapping[str(row["asset_id"])] = row["asset_id"]
             return mapping
         except Exception:
+            logger.exception("Failed to resolve alert asset IDs")
             return {}
 
 
@@ -425,38 +497,10 @@ if __name__ == "__main__":
         )
     else:
         # ── Live Supabase mode ────────────────────────────────────────────────
-        # Pull the full assets table as "current" inventory.
-        # For a real system you'd compare against a previously saved snapshot;
-        # here we simulate by using the DB current state as both (no changes).
-        # Replace this with your own snapshot-loading logic as needed.
         try:
-            sb      = create_client(SUPABASE_URL, SUPABASE_KEY)
-            current = sb.table("assets").select("*").execute().data
-
-            # Try to load the last monitoring log as "previous"
-            log_files = sorted(
-                [f for f in os.listdir(LOGS_DIR) if f.endswith(".json")]
-            ) if os.path.exists(LOGS_DIR) else []
-
-            if log_files:
-                last_log = os.path.join(LOGS_DIR, log_files[-1])
-                with open(last_log) as f:
-                    previous = json.load(f).get("added_assets", []) + \
-                               json.load(open(last_log)).get("current_inventory", current)
-            else:
-                print("  ℹ️  No previous log found — using current inventory as baseline.")
-                previous = current
-
-            monitor = AssetMonitor(
-                previous         = previous,
-                current          = current,
-                run_label        = "Supabase Live Run",
-                save_locally     = True,
-                push_to_supabase = True,
-            )
-        except Exception as e:
-            print(f"\n  ⚠️  Could not connect to Supabase: {e}")
-            print("  Falling back to demo mode.\n")
+            monitor = build_live_monitor(push_to_supabase=True)
+        except Exception:
+            logger.exception("Could not connect to Supabase; falling back to demo mode")
             monitor = AssetMonitor(
                 previous         = _DEMO_PREVIOUS,
                 current          = _DEMO_CURRENT,
@@ -466,4 +510,4 @@ if __name__ == "__main__":
             )
 
     report = monitor.run()
-    print(report)
+    logger.info("\n%s", report)

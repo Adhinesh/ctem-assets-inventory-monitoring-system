@@ -43,7 +43,14 @@ def list_change_alerts(
     if since:
         q = q.gte("changed_at", since)
     res = q.order("changed_at", desc=True).limit(limit).execute()
-    return {"total": len(res.data), "data": res.data}
+    latest_changed_at = res.data[0]["changed_at"] if res.data else since
+    return {
+        "total": len(res.data),
+        "since": since,
+        "latest_changed_at": latest_changed_at,
+        "server_time": datetime.utcnow().isoformat(),
+        "data": res.data,
+    }
 
 
 @router.get("/exposures", summary="Active high-risk exposures as alerts")

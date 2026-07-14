@@ -24,10 +24,17 @@ Copy the contents of `schema.sql` and run it in your PostgreSQL database or Supa
 pip install -r requirements.txt
 ```
 
+### 2b. Run With Docker
+Build and start the API with:
+```bash
+docker compose up --build
+```
+
+The container reads `SUPABASE_URL`, `SUPABASE_KEY`, and `CTEM_LOG_LEVEL` from the environment. If you want to override the defaults, export them before starting Compose.
+
 ### 3. Configuration
-1. Copy `config.example.py` to `config.py`
-2. Open `config.py` and replace the placeholder values with your actual Supabase URL and API Key.
-*(Note: `config.py` is gitignored so you won't accidentally commit your secrets).*
+1. Set `SUPABASE_URL` and `SUPABASE_KEY` in your environment, or edit `config.py` if you need a local fallback.
+2. Optionally set `CTEM_LOG_LEVEL` to control verbosity.
 
 ### 4. Insert Sample Data
 To populate the database with realistic CTEM sample data, run:
@@ -41,6 +48,40 @@ To view your data nicely formatted in the terminal, run:
 ```bash
 python queries.py
 ```
+
+### 6. Run Continuous Monitoring
+To keep monitoring running in the background 24/7, start:
+```bash
+python3 scheduler1.py
+```
+
+To change how often it checks for changes:
+```bash
+python3 scheduler1.py --interval-seconds 30
+```
+
+This runner:
+- loads the previous asset snapshot from `monitoring_logs/latest_inventory_snapshot.json`
+- loads the current asset inventory from Supabase
+- detects added, removed, and modified assets
+- stores monitoring alerts and saves the new snapshot for the next cycle
+
+### 7. Poll Alerts From the Frontend
+For near-real-time notifications, poll:
+```bash
+GET /alerts/changes?since=2026-07-10T12:00:00
+```
+
+The response includes:
+- `data` → new alert/change rows
+- `latest_changed_at` → use this value as the next `since`
+- `server_time` → backend timestamp for sync/debugging
+
+Recommended frontend loop:
+1. Call `GET /alerts/changes` with no `since` on first load.
+2. Store `latest_changed_at` from the response.
+3. Poll every 3 to 5 seconds with `?since=<latest_changed_at>`.
+4. Show any new rows in `data` as notifications.
 
 ---
 
