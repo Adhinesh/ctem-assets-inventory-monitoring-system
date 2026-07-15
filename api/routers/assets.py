@@ -47,6 +47,23 @@ def _record_asset_change(
     }).execute()
 
 
+def _clean_asset_payload(data: dict) -> dict:
+    """Drop Swagger placeholder values that can break Supabase writes."""
+    cleaned = {}
+    for field, value in data.items():
+        if value is None:
+            continue
+        if value == "string":
+            continue
+        if isinstance(value, list) and value and all(item == "string" for item in value):
+            continue
+        if field == "tags" and isinstance(value, dict):
+            if set(value.keys()) == {"additionalProp1"} and value.get("additionalProp1") == {}:
+                continue
+        cleaned[field] = value
+    return cleaned
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/", summary="List all assets")
@@ -109,7 +126,7 @@ def create_asset(payload: AssetCreate, db: Client = Depends(get_db)):
     If that `asset_id` already exists, the record is updated.
     """
     try:
-        data = payload.model_dump(exclude_none=True)
+        data = _clean_asset_payload(payload.model_dump(exclude_none=True))
         asset_id = data["asset_id"]
         existing = (
             db.table("assets")
@@ -161,7 +178,7 @@ def update_asset(asset_id: int, payload: AssetUpdate, db: Client = Depends(get_d
     """Update one or more fields on an existing asset."""
     try:
         before = _asset_or_404(db, asset_id)
-        data = payload.model_dump(exclude_none=True)
+        data = _clean_asset_payload(payload.model_dump(exclude_none=True))
         if not data:
             raise HTTPException(status_code=400, detail="No fields provided to update")
         res = db.table("assets").update(data).eq("asset_id", asset_id).execute()

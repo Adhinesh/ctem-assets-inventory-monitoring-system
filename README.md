@@ -14,6 +14,14 @@ A lightweight Continuous Threat Exposure Management (CTEM) prototype database bu
 - `asset_vulnerabilities` — Link table mapping CVEs to Assets with SLA tracking.
 - `exposures` — Active CTEM threats mapped to business risk.
 
+## 🤝 XFinder Compatibility
+This repo now includes a bridge for Team 1's XFinder bundle format:
+
+- `xfinder_*` tables mirror Team 1's normalized schema for raw import.
+- `xfinder_scan_reports` and `xfinder_change_reports` preserve their JSON outputs.
+- `import_xfinder_bundle.py` can translate Team 1 bundles into the CTEM tables.
+- Apply `xfinder_supabase_migration.sql` in Supabase; do not rerun `schema.sql` on an existing database.
+
 ## 🚀 Getting Started
 
 ### 1. Database Setup
@@ -35,6 +43,14 @@ The container reads `SUPABASE_URL`, `SUPABASE_KEY`, and `CTEM_LOG_LEVEL` from th
 ### 3. Configuration
 1. Set `SUPABASE_URL` and `SUPABASE_KEY` in your environment, or edit `config.py` if you need a local fallback.
 2. Optionally set `CTEM_LOG_LEVEL` to control verbosity.
+
+### 2c. Import Team 1 XFinder Output
+To load a Team 1 bundle into the compatibility tables and sync the resolvable data into CTEM:
+```bash
+python import_xfinder_bundle.py --bundle-dir /path/to/sample_output
+```
+
+Use `--dry-run` to inspect the derived CTEM payloads without writing to Supabase.
 
 ### 4. Insert Sample Data
 To populate the database with realistic CTEM sample data, run:
