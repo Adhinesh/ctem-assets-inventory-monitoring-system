@@ -26,6 +26,11 @@ class PortCreate(BaseModel):
     notes: Optional[str] = None
 
 
+def _asset_exists(db: Client, asset_id: int) -> bool:
+    res = db.table("assets").select("asset_id").eq("asset_id", asset_id).limit(1).execute()
+    return bool(res.data)
+
+
 @router.get("/", summary="List all open ports")
 def list_ports(
     is_expected: Optional[bool] = Query(None, description="True = known port, False = rogue/unexpected"),
@@ -78,6 +83,8 @@ def create_port(payload: PortCreate, db: Client = Depends(get_db)):
     Add a port record. Upserts on (asset_id, port_number, protocol) constraint.
     """
     data = payload.model_dump(exclude_none=True)
+    if not _asset_exists(db, data["asset_id"]):
+        raise HTTPException(status_code=404, detail=f"Asset {data['asset_id']} not found")
     res = db.table("open_ports").upsert(data, on_conflict="asset_id,port_number,protocol").execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Failed to add port")

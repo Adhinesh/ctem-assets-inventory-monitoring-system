@@ -147,6 +147,12 @@ Once you have an `asset_id`, use the sub-resource routes:
 - `GET /assets/{asset_id}/changes`
 - `GET /assets/{asset_id}/logs`
 
+To attach a new vulnerability to an asset in one request, use:
+
+- `POST /assets/{asset_id}/vulnerabilities`
+
+If you already have a vulnerability row, send `vuln_id`. If not, send `cve_id` and the API will create or reuse the vulnerability record before linking it.
+
 Example:
 
 ```bash

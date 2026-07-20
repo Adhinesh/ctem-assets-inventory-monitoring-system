@@ -17,6 +17,20 @@ print("🗑️  Clearing all data from tables...")
 # But we'll delete from all root tables just to be safe.
 
 tables_to_clear = [
+    "xfinder_change_reports",
+    "xfinder_scan_reports",
+    "xfinder_api_endpoints",
+    "xfinder_vulnerabilities",
+    "xfinder_technologies",
+    "xfinder_services",
+    "xfinder_ports",
+    "xfinder_ip_addresses",
+    "xfinder_cloud_assets",
+    "xfinder_http_information",
+    "xfinder_dns_records",
+    "xfinder_subdomains",
+    "xfinder_scans",
+    "xfinder_targets",
     "exposures",
     "asset_vulnerabilities",
     "scan_snapshots",
@@ -52,6 +66,34 @@ for table in tables_to_clear:
             res = supabase.table(table).delete().neq("change_id", 0).execute()
         elif table == "scan_snapshots":
             res = supabase.table(table).delete().neq("snapshot_id", 0).execute()
+        elif table == "xfinder_targets":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_scans":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_subdomains":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_dns_records":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_http_information":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_cloud_assets":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_ip_addresses":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_ports":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_services":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_technologies":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_api_endpoints":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_vulnerabilities":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_scan_reports":
+            res = supabase.table(table).delete().neq("id", 0).execute()
+        elif table == "xfinder_change_reports":
+            res = supabase.table(table).delete().neq("id", 0).execute()
             
         print(f"  ✔ Cleared table: {table}")
     except Exception as e:

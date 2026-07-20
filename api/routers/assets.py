@@ -6,6 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from supabase import Client
+from pydantic import BaseModel, Field
 
 from api.db import get_db
 from api.models.asset import AssetCreate, AssetUpdate, AssetResponse
@@ -13,6 +14,25 @@ from logging_utils import get_logger
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
 logger = get_logger(__name__)
+
+
+class AssetVulnerabilityLinkCreate(BaseModel):
+    vuln_id: Optional[int] = None
+    cve_id: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    cvss_score: Optional[float] = Field(None, ge=0.0, le=10.0)
+    severity: Optional[str] = None
+    affected_component: Optional[str] = None
+    status: Optional[str] = "open"
+    priority: Optional[str] = "medium"
+    assigned_to: Optional[str] = None
+    detected_on: Optional[str] = None
+    remediated_on: Optional[str] = None
+    due_date: Optional[str] = None
+    last_seen: Optional[str] = None
+    proof_of_concept: Optional[str] = None
+    notes: Optional[str] = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,6 +65,23 @@ def _record_asset_change(
         "source": "manual",
         "change_reason": change_reason,
     }).execute()
+
+
+def _clean_asset_payload(data: dict) -> dict:
+    """Drop Swagger placeholder values that can break Supabase writes."""
+    cleaned = {}
+    for field, value in data.items():
+        if value is None:
+            continue
+        if value == "string":
+            continue
+        if isinstance(value, list) and value and all(item == "string" for item in value):
+            continue
+        if field == "tags" and isinstance(value, dict):
+            if set(value.keys()) == {"additionalProp1"} and value.get("additionalProp1") == {}:
+                continue
+        cleaned[field] = value
+    return cleaned
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -109,7 +146,7 @@ def create_asset(payload: AssetCreate, db: Client = Depends(get_db)):
     If that `asset_id` already exists, the record is updated.
     """
     try:
-        data = payload.model_dump(exclude_none=True)
+        data = _clean_asset_payload(payload.model_dump(exclude_none=True))
         asset_id = data["asset_id"]
         existing = (
             db.table("assets")
@@ -161,7 +198,7 @@ def update_asset(asset_id: int, payload: AssetUpdate, db: Client = Depends(get_d
     """Update one or more fields on an existing asset."""
     try:
         before = _asset_or_404(db, asset_id)
-        data = payload.model_dump(exclude_none=True)
+        data = _clean_asset_payload(payload.model_dump(exclude_none=True))
         if not data:
             raise HTTPException(status_code=400, detail="No fields provided to update")
         res = db.table("assets").update(data).eq("asset_id", asset_id).execute()
@@ -223,6 +260,54 @@ def get_asset_vulnerabilities(asset_id: int, status: Optional[str] = None, db: C
         q = q.eq("status", status)
     res = q.execute()
     return {"asset_id": asset_id, "total": len(res.data), "data": res.data}
+
+
+@router.post("/{asset_id}/vulnerabilities", summary="Attach a vulnerability to an asset", status_code=201)
+def add_asset_vulnerability(asset_id: int, payload: AssetVulnerabilityLinkCreate, db: Client = Depends(get_db)):
+    """Create or reuse a vulnerability record, then link it to the asset."""
+    _asset_or_404(db, asset_id)
+
+    vuln_id = payload.vuln_id
+    if vuln_id is None:
+        if not payload.cve_id:
+            raise HTTPException(status_code=400, detail="Provide vuln_id or cve_id")
+        existing = db.table("vulnerabilities").select("vuln_id").eq("cve_id", payload.cve_id).execute().data
+        if existing:
+            vuln_id = existing[0]["vuln_id"]
+        else:
+            vuln_row = {
+                "cve_id": payload.cve_id,
+                "title": payload.title or payload.cve_id,
+                "description": payload.description,
+                "cvss_score": payload.cvss_score,
+                "severity": payload.severity,
+                "fix_available": False,
+                "exploit_available": False,
+            }
+            created = db.table("vulnerabilities").upsert(vuln_row, on_conflict="cve_id").execute().data
+            if not created:
+                raise HTTPException(status_code=500, detail="Failed to create vulnerability")
+            vuln_id = created[0]["vuln_id"]
+
+    link_row = {
+        "asset_id": asset_id,
+        "vuln_id": vuln_id,
+        "status": payload.status,
+        "priority": payload.priority,
+        "assigned_to": payload.assigned_to,
+        "detected_on": payload.detected_on,
+        "remediated_on": payload.remediated_on,
+        "due_date": payload.due_date,
+        "last_seen": payload.last_seen,
+        "affected_component": payload.affected_component,
+        "proof_of_concept": payload.proof_of_concept,
+        "notes": payload.notes,
+    }
+    clean_link_row = {key: value for key, value in link_row.items() if value is not None}
+    res = db.table("asset_vulnerabilities").upsert(clean_link_row, on_conflict="asset_id,vuln_id").execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Failed to link vulnerability")
+    return res.data[0]
 
 
 @router.get("/{asset_id}/ports", summary="Get open ports for an asset")

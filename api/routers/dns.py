@@ -30,6 +30,11 @@ class DNSRecordCreate(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+def _asset_exists(db: Client, asset_id: int) -> bool:
+    res = db.table("assets").select("asset_id").eq("asset_id", asset_id).limit(1).execute()
+    return bool(res.data)
+
+
 @router.get("/", summary="List all DNS records")
 def list_dns(
     status:    Optional[str] = Query(None, description="active | stale | dangling | expired"),
@@ -81,6 +86,8 @@ def create_dns(payload: DNSRecordCreate, db: Client = Depends(get_db)):
     data = payload.model_dump(exclude_none=True)
     if "expires_at" in data and data["expires_at"]:
         data["expires_at"] = data["expires_at"].isoformat()
+    if data.get("asset_id") is not None and not _asset_exists(db, data["asset_id"]):
+        raise HTTPException(status_code=404, detail=f"Asset {data['asset_id']} not found")
     res = (
         db.table("dns_records")
         .upsert(data, on_conflict="domain,subdomain,record_type,record_value")
